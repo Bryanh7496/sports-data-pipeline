@@ -1,0 +1,18 @@
+# secrets
+.env
+
+# python
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+venv/
+*.egg-info/
+
+# raw landed data -- reproducible from the API, don't commit it
+storage/raw/*.json
+
+# os/editor
+.DS_Store
+.vscode/
+.idea/
