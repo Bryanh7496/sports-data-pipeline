@@ -26,9 +26,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from dotenv import load_dotenv
+
 from ingestion.client import BallDontLieAPIError, BallDontLieClient
 from ingestion.config import ConfigError, Settings
 from ingestion.utils.logger import get_logger
+
+load_dotenv()
 
 logger = get_logger(__name__)
 
