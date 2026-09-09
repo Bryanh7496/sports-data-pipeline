@@ -31,13 +31,39 @@ retry -- retrying it three times with backoff just delays a should-be-instant
 failure. Only genuinely transient conditions (rate limit hit, server error,
 network blip) get the retry-with-backoff treatment.
 
-## 2026-09-08 -- First successful live run against the real API
+## 2026-09-09 -- Least-privilege IAM user instead of root credentials
 
-Ran `python -m ingestion.fetch_games --season 2024` against the live
-balldontlie API (not just unit tests) for the first time. Confirmed:
-auth via API key worked, pagination correctly followed cursors across
-multiple pages, rate limiting kept requests under the 5/minute cap
-without triggering a 429, and the output file landed in `storage/raw/`
-with a non-zero record count. Also ran the full pytest suite -- all
-passing. This is the first real evidence the ingestion logic works
-end-to-end, not just against synthetic test data.
+Created a dedicated IAM user (`sports-pipeline-app`) scoped to a single
+custom policy granting only `s3:ListBucket` on the bucket itself and
+`s3:PutObject`/`s3:GetObject` on objects within it -- no `DeleteObject`, no
+wildcard resources, no broad managed policy like `AmazonS3FullAccess`. The
+pipeline's code should never hold credentials more powerful than what it
+actually needs; if these access keys ever leaked, the blast radius is
+"read/write one bucket," not "full AWS account access."
+
+## 2026-09-09 -- Write locally first, then upload to S3 (not a direct S3 write)
+
+`fetch_games.py` still writes the raw JSON to local disk first via
+`write_raw_json()`, then calls `upload_file()` (new, in
+`ingestion/s3_uploader.py`) to push that same file to S3. Considered
+writing directly to S3 and skipping the local file entirely, but kept the
+local-write step because: (1) it preserves a debuggable local artifact
+during development without needing to go pull it back down from S3 to
+inspect it, and (2) the existing unit tests for `write_raw_json()` didn't
+need to change. The tradeoff: if the S3 upload fails after a successful
+local write, the file exists locally but not in S3 -- there's no automatic
+retry/reconciliation for that gap yet, just a loud log error. That's an
+acceptable gap for a single-user/manual-run pipeline at this stage, but is
+exactly the kind of thing that would need addressing (e.g. a
+"reconcile local vs. S3" check, or an idempotent re-run) before this ran
+unattended under Airflow.
+
+## 2026-09-09 -- S3 upload errors are separated from ingestion errors
+
+`S3UploadError` is a distinct exception type from `BallDontLieAPIError`.
+A failed upload after a successful, fully-validated data pull is a
+different kind of failure than a failed API call -- the data itself is
+fine, it just isn't in the right place yet. Keeping these as separate
+exception types means calling code (and future monitoring/alerting) can
+distinguish "the data is bad or unavailable" from "the data is fine but
+storage failed," which likely warrant different responses.

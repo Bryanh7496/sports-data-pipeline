@@ -11,15 +11,16 @@ just the final dashboard.
 
 ## Current status
 
-**Phase 1 of 4 -- Python ingestion.** This phase pulls NBA games from the
-[balldontlie API](https://docs.balldontlie.io/), validates them, and lands
-raw JSON to local storage. It does **not** yet include Snowflake loading,
-dbt transforms, or Airflow orchestration -- those are tracked below and
-will be added as the project progresses.
+**Phase 2 of 4 -- Python ingestion + S3 landing.** This phase pulls NBA
+games from the [balldontlie API](https://docs.balldontlie.io/), validates
+them, lands raw JSON locally, and uploads it to S3. It does **not** yet
+include Snowflake loading, dbt transforms, or Airflow orchestration --
+those are tracked below and will be added as the project progresses.
 
 ```
 [ DONE ]   API  ->  Python (auth, pagination, retries, validation)  ->  raw JSON (local)
-[ NEXT ]   raw JSON  ->  S3  ->  Snowflake RAW
+[ DONE ]   raw JSON (local)  ->  S3 (raw/ prefix)
+[ NEXT ]   S3  ->  Snowflake RAW
 [ LATER ]  Snowflake RAW  ->  dbt staging/marts  ->  dbt tests
 [ LATER ]  Airflow DAG orchestrates the full pipeline end-to-end
 ```
@@ -49,10 +50,16 @@ for an afternoon.
   caught later. This is a narrower check than what dbt tests will do once
   the data reaches the warehouse -- the goal here is "is this record even
   usable," not full schema validation.
-- **Local storage today, S3 next.** Raw JSON lands to `storage/raw/` for
-  now rather than S3, since there's no reason ingestion logic needs to wait
-  on AWS setup. `write_raw_json()` in `ingestion/fetch_games.py` is the one
-  function that changes when S3 is added.
+- **Local write, then S3 upload -- not a direct S3 write.** Raw JSON lands
+  to `storage/raw/` first, then gets uploaded to S3 via `upload_file()` in
+  `ingestion/s3_uploader.py`. This keeps a debuggable local copy during
+  development and means a failed upload doesn't lose already-validated
+  data -- it's just not in S3 yet, and gets logged loudly rather than
+  silently dropped.
+- **Least-privilege IAM, not root credentials.** The pipeline authenticates
+  to AWS as a dedicated IAM user scoped to a single custom policy: it can
+  only read/write objects in this project's one S3 bucket, and can't
+  delete anything. No broad managed policies, no wildcard resources.
 
 See [`docs/DECISIONS.md`](docs/DECISIONS.md) for the full, dated log of
 these and future decisions.
@@ -81,11 +88,12 @@ sports-data-pipeline/
 ├── ingestion/
 │   ├── client.py        # API client: auth, rate limiting, retries, pagination
 │   ├── config.py        # Settings loaded from environment variables
-│   ├── fetch_games.py   # Entry point: fetch -> validate -> land raw JSON
+│   ├── fetch_games.py   # Entry point: fetch -> validate -> land raw JSON -> upload to S3
+│   ├── s3_uploader.py   # Uploads a local file to S3
 │   └── utils/
 │       └── logger.py
 ├── storage/
-│   └── raw/              # Landed raw JSON (gitignored; stand-in for S3 today)
+│   └── raw/              # Landed raw JSON (gitignored; local copy before S3 upload)
 ├── dbt/                  # Placeholder -- transforms land here in the next phase
 ├── airflow/
 │   └── dags/              # Placeholder -- orchestration lands here later
@@ -102,17 +110,22 @@ sports-data-pipeline/
 
 1. Get a free API key at [app.balldontlie.io](https://app.balldontlie.io)
    (Account Settings → API).
-2. Copy `.env.example` to `.env` and add your key.
-3. Install dependencies:
+2. Set up an S3 bucket and a scoped-down IAM user (see `docs/DECISIONS.md`
+   for the exact least-privilege policy used) and generate access keys for
+   that user.
+3. Copy `.env.example` to `.env` and fill in both the balldontlie key and
+   the AWS values (access key, secret key, region, bucket name).
+4. Install dependencies:
    ```bash
    pip install -r requirements.txt
    ```
-4. Run the ingestion script for a given season:
+5. Run the ingestion script for a given season:
    ```bash
    python -m ingestion.fetch_games --season 2024
    ```
-   Output lands in `storage/raw/games_season2024_<timestamp>.json`.
-5. Run the tests:
+   Output lands in `storage/raw/games_season2024_<timestamp>.json` and is
+   then uploaded to `s3://<your-bucket>/raw/games_season2024_<timestamp>.json`.
+6. Run the tests:
    ```bash
    pytest tests/ -v
    ```
@@ -121,7 +134,7 @@ sports-data-pipeline/
 
 - [x] Python ingestion: auth, pagination, rate limiting, retries, validation
 - [x] Unit tests + CI (GitHub Actions)
-- [ ] Land raw data to S3 instead of local disk
+- [x] Land raw data to S3 (least-privilege IAM user, scoped bucket policy)
 - [ ] Load raw data into Snowflake (RAW schema)
 - [ ] dbt staging/intermediate/marts models + tests
 - [ ] Airflow DAG orchestrating ingestion → load → transform → test

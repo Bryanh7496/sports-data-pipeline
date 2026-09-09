@@ -1,19 +1,20 @@
 """
-Entry point: pull one season of NBA games from the balldontlie API and land
-the raw response as JSON.
+Entry point: pull one season of NBA games from the balldontlie API, land
+the raw response as JSON locally, then upload it to S3.
 
 Where this fits in the bigger pipeline (see README for the full picture):
 
-    [this script] -> storage/raw/*.json -> (Month 2: S3) -> Snowflake RAW
-        -> dbt staging/marts -> dbt tests -> (Month 3: Airflow orchestrates
-        all of it)
+    API -> Python (this script) -> local storage/raw/*.json -> S3 raw/
+        -> Snowflake RAW -> dbt staging/marts -> dbt tests
+        -> (later: Airflow orchestrates all of it)
 
-Today this writes to a local `storage/raw/` folder as a stand-in for S3,
-which lets the ingestion logic (auth, pagination, retries, validation) get
-built and tested before the AWS piece exists. Swapping the local write for
-an S3 upload later should only touch `write_raw_json()` -- everything
-upstream of it stays the same, which is the point of separating "fetch
-the data" from "land the data" in the first place.
+The file is written locally FIRST, then uploaded -- not written directly
+to S3 -- for two reasons: it keeps a debuggable local copy during
+development (you can inspect exactly what was about to be uploaded), and
+it means the existing local-file tests didn't need to change when S3 was
+added. See docs/DECISIONS.md for the full reasoning and the tradeoff this
+implies (a failed upload after a successful local write needs to be
+re-run manually for now -- there's no automatic retry/reconciliation yet).
 
 Usage:
     python -m ingestion.fetch_games --season 2024
@@ -30,6 +31,7 @@ from dotenv import load_dotenv
 
 from ingestion.client import BallDontLieAPIError, BallDontLieClient
 from ingestion.config import ConfigError, Settings
+from ingestion.s3_uploader import S3UploadError, upload_file
 from ingestion.utils.logger import get_logger
 
 load_dotenv()
@@ -112,6 +114,27 @@ def run(season: int) -> int:
         "Wrote %d records (%d dropped) to %s",
         len(valid_games), dropped_count, output_path,
     )
+
+    try:
+        s3_uri = upload_file(output_path, settings)
+    except S3UploadError as exc:
+        # The local file is already safely written at this point, so this
+        # isn't a total loss -- but it does mean the "source of truth" for
+        # this run is temporarily just the local disk, not S3. Surfacing
+        # this loudly (not swallowing it) matters because a later stage
+        # (Snowflake loading) will read from S3, not local disk -- a silent
+        # failure here would look like "the data just never showed up"
+        # three steps downstream, which is a much harder failure to trace
+        # back to its actual cause.
+        logger.error(
+            "Local file written successfully but S3 upload failed: %s. "
+            "The file is still available locally at %s and can be "
+            "re-uploaded manually or by re-running this script.",
+            exc, output_path,
+        )
+        return 1
+
+    logger.info("Successfully landed run output at %s", s3_uri)
     return 0
 
 
