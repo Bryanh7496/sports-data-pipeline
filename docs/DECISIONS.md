@@ -67,3 +67,7 @@ fine, it just isn't in the right place yet. Keeping these as separate
 exception types means calling code (and future monitoring/alerting) can
 distinguish "the data is bad or unavailable" from "the data is fine but
 storage failed," which likely warrant different responses.
+
+## 2026-09-09 -- S3 Upload completed and in raw storage folder
+
+I hit real rate limits and watched my retry logic handle them correctly
