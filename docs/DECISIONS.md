@@ -30,3 +30,14 @@ A 401 (bad API key) or a malformed request isn't going to fix itself on
 retry -- retrying it three times with backoff just delays a should-be-instant
 failure. Only genuinely transient conditions (rate limit hit, server error,
 network blip) get the retry-with-backoff treatment.
+
+## 2026-09-08 -- First successful live run against the real API
+
+Ran `python -m ingestion.fetch_games --season 2024` against the live
+balldontlie API (not just unit tests) for the first time. Confirmed:
+auth via API key worked, pagination correctly followed cursors across
+multiple pages, rate limiting kept requests under the 5/minute cap
+without triggering a 429, and the output file landed in `storage/raw/`
+with a non-zero record count. Also ran the full pytest suite -- all
+passing. This is the first real evidence the ingestion logic works
+end-to-end, not just against synthetic test data.
