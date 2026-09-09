@@ -212,6 +212,16 @@ exist yet.
   Snowflake load, then trigger dbt runs and tests -- on a schedule,
   with retries and failure alerting instead of manual runs.
 - **Tool-specific?** **Airflow-specific.**
+- **Docker note:** This phase is also where Docker becomes relevant to
+  this project. Airflow is a small ecosystem (scheduler, web server,
+  metadata database, workers), and the standard way to run it locally
+  is via `docker-compose`, which starts all of those pieces as
+  coordinated containers with one command. A venv (what the project
+  uses today) isolates Python packages; Docker isolates the entire
+  environment (Python version, OS-level libraries, everything) --
+  overkill for the single-script ingestion phase, but the practical
+  answer once Airflow's multiple moving parts enter the picture. Not
+  needed before this phase.
 
 ### Snowflake RAW schema loading (Phase 3 -- not yet built)
 - **What it will do:** A script or Snowflake feature (e.g. `COPY INTO`,
@@ -238,4 +248,4 @@ exist yet.
 | `README.md`, `docs/*.md` | None |
 | `CLAUDE.md` | **Claude Code** |
 | `dbt/` *(planned)* | **dbt** + Snowflake |
-| `airflow/dags/` *(planned)* | **Airflow** |
+| `airflow/dags/` *(planned)* | **Airflow** (run locally via **Docker**/`docker-compose`) |
