@@ -71,3 +71,78 @@ storage failed," which likely warrant different responses.
 ## 2026-09-09 -- S3 Upload completed and in raw storage folder
 
 I hit real rate limits and watched my retry logic handle them correctly
+
+## 2026-10-08 -- Land raw JSON as a single VARIANT row; flatten and dedupe in dbt
+
+Loaded each S3 file into `SPORTS_DB.RAW.GAMES_RAW` as one VARIANT row
+(payload, source_file, file_row_number, loaded_at) instead of flattening
+during COPY INTO. Snowflake's COPY transformation step doesn't support
+FLATTEN, and keeping RAW as an untouched copy of what the API returned
+means parsing mistakes can be fixed in dbt and replayed without
+re-calling the API (a full season takes about 3 minutes at the 5
+requests/minute limit). Trade-off: one file = one row, so this relies on
+the 16 MB VARIANT limit. A full season is ~1.7 MB, so it's fine here but
+wouldn't scale to much larger payloads.
+
+## 2026-10-08 -- Idempotent loads are not the same as unique data
+
+COPY INTO tracks which files it has already loaded, so re-running it
+doesn't double-load a file. But every ingestion run lands a full season in
+a new timestamped file, so the same game_id appears once per file. The
+staging model `stg_games` therefore deduplicates on game_id, keeping the
+row from the latest extracted_at (QUALIFY ROW_NUMBER). The `unique` test
+on game_id enforces this. Grain of stg_games: one row per game.
+
+## 2026-10-08 -- Snowflake reads S3 through an IAM role, not access keys
+
+Created a storage integration (`s3_sports_integration`) backed by an IAM
+role (`snowflake-s3-read-role`) that Snowflake's own AWS identity assumes,
+with an external ID in the trust policy. The role's policy is read-only
+and limited to the `raw/` prefix (GetObject, plus ListBucket restricted
+by prefix condition). No AWS keys are stored in Snowflake. This is the
+role-vs-user distinction in practice: the pipeline's code uses an IAM
+user with keys (it runs on my laptop); a managed service uses a role.
+
+## 2026-10-08 -- Resource monitor and a small warehouse as a cost guardrail
+
+After converting the trial to paid, set the warehouse to X-Small with
+60-second auto-suspend and attached a resource monitor
+(`sports_pipeline_monitor`, 5 credits/month): notify at 50% and 90%,
+suspend at 100%, suspend immediately at 110%. The workload is a few
+thousand rows, so the cap should never bind in normal use; it exists so a
+mistake (a runaway query or loop) is contained. Same blast-radius thinking
+as the scoped IAM policy and the AWS billing alarm.
+
+## 2026-10-08 -- Dedicated least-privilege role for dbt (DBT_ROLE)
+
+dbt runs as `DBT_ROLE`, not ACCOUNTADMIN. It can use the warehouse, read
+the RAW schema (existing and future tables), and create its own schemas
+(STAGING, MARTS). It owns what it creates. Side effect worth remembering:
+objects owned by DBT_ROLE are invisible to ACCOUNTADMIN unless the role
+is granted up the hierarchy, which surfaced as a "schema does not exist or
+not authorized" error when I queried as ACCOUNTADMIN. A macro
+(`generate_schema_name`) makes dbt use the custom schema name as-is
+(STAGING, not ANALYTICS_STAGING).
+
+## 2026-10-08 -- Key-pair auth with a service user, not password + MFA
+
+Snowflake required MFA for password sign-ins on this account, which a
+non-interactive tool like dbt can't satisfy. Switched to key-pair
+authentication with a dedicated service user (`DBT_SERVICE_USER`,
+TYPE = SERVICE, which can't use a password). The private key lives in
+`~/.snowflake/` outside the repo, is referenced only through an
+environment variable, and `*.p8` is gitignored as a backstop. profiles.yml
+contains no secrets, so it's safe to commit. Considered MFA token caching
+with the human user; rejected as more fragile and a worse fit for
+automation (Airflow later).
+
+## 2026-10-08 -- Pinned the local runtime to Python 3.12
+
+dbt crashed on startup with a mashumaro serialization error under the
+default Python. Rebuilt the venv on Python 3.12 (installed from
+python.org after a Homebrew update left Homebrew itself broken) and dbt
+ran cleanly. I suspect a Python-version incompatibility but didn't
+confirm which version I started on, so treat that as likely, not proven.
+Also had to run the Python installer's "Install Certificates" script
+before pip could build one dbt dependency. Lesson: record the runtime
+version, because "works on my machine" depends on it.

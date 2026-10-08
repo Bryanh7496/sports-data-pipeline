@@ -44,15 +44,22 @@ and are the source of truth for what's built, what's tested, and what's next.
 
 ## Current phase (update this section as the project progresses)
 
-Phase 1 (Python ingestion) is complete and verified: pulls NBA game data
-from the balldontlie API with auth, rate limiting, retries, pagination, and
-record validation; lands raw JSON locally; has a passing pytest suite; CI
-runs on every push via GitHub Actions.
+Phases complete and verified: Python ingestion (API -> local JSON), S3
+landing (least-privilege IAM user), Snowflake RAW load (storage
+integration with an IAM role, COPY INTO into a VARIANT table), and a dbt
+staging model (`stg_games`, grain = one row per game, deduplicated to the
+latest extraction, 8 passing tests). dbt authenticates to Snowflake with
+key-pair auth as a service user (`DBT_SERVICE_USER`) using a scoped
+`DBT_ROLE`; the private key lives outside the repo in `~/.snowflake/`.
 
-Phase 2 — land raw data to S3 instead of local disk is complete and
-verified, then load into Snowflake RAW schema. This is also my first real
-hands-on AWS work, so expect to need more explanation here than in areas 
-I already know.
+Runtime notes: use Python 3.12 (venv at `./venv`); dbt does not read `.env`
+itself, so load it with `set -a; source .env; set +a` before running dbt
+from the `dbt/` folder. Homebrew was left in a broken state on this machine
+(not yet repaired), so avoid `brew` commands.
+
+Next up: dbt mart layer (`dim_team`, `fct_games`), then Airflow
+orchestration (via Docker), then deliberately breaking the pipeline and
+documenting recovery, then monitoring.
 
 ## Longer-term roadmap
 

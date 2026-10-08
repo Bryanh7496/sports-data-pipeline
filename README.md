@@ -11,17 +11,18 @@ just the final dashboard.
 
 ## Current status
 
-**Phase 2 of 4 -- Python ingestion + S3 landing.** This phase pulls NBA
-games from the [balldontlie API](https://docs.balldontlie.io/), validates
-them, lands raw JSON locally, and uploads it to S3. It does **not** yet
-include Snowflake loading, dbt transforms, or Airflow orchestration --
-those are tracked below and will be added as the project progresses.
+**Phase 3 of 4 -- ingestion, S3 landing, Snowflake RAW, and dbt staging.**
+The pipeline pulls NBA games from the [balldontlie API](https://docs.balldontlie.io/),
+validates them, lands raw JSON in S3, loads it into Snowflake as an
+untouched VARIANT copy, and flattens and deduplicates it into a tested
+dbt staging model. Mart models and Airflow orchestration are next.
 
 ```
 [ DONE ]   API  ->  Python (auth, pagination, retries, validation)  ->  raw JSON (local)
-[ DONE ]   raw JSON (local)  ->  S3 (raw/ prefix)
-[ NEXT ]   S3  ->  Snowflake RAW
-[ LATER ]  Snowflake RAW  ->  dbt staging/marts  ->  dbt tests
+[ DONE ]   raw JSON  ->  S3 (raw/ prefix)
+[ DONE ]   S3  ->  Snowflake RAW (storage integration + COPY INTO, VARIANT)
+[ DONE ]   RAW  ->  dbt staging (stg_games: flatten, dedupe, 8 tests)
+[ NEXT ]   dbt marts (dim_team, fct_games)
 [ LATER ]  Airflow DAG orchestrates the full pipeline end-to-end
 ```
 
@@ -60,6 +61,16 @@ for an afternoon.
   to AWS as a dedicated IAM user scoped to a single custom policy: it can
   only read/write objects in this project's one S3 bucket, and can't
   delete anything. No broad managed policies, no wildcard resources.
+- **RAW is an untouched VARIANT copy.** Each landed file loads as one row;
+  flattening and deduplication happen in dbt, so parsing mistakes can be
+  fixed and replayed without re-calling the API.
+- **Idempotent loads, deduplicated data.** COPY INTO won't re-load a file,
+  but each run lands a full season, so `stg_games` keeps the latest copy of
+  each game_id and a `unique` test enforces it.
+- **Roles over keys, least privilege everywhere.** Snowflake reads S3 via an
+  IAM role; dbt runs as a scoped `DBT_ROLE` and authenticates with key-pair
+  auth through a service user (no passwords, no MFA prompts); a resource
+  monitor caps Snowflake spend.
 
 See [`docs/DECISIONS.md`](docs/DECISIONS.md) for the full, dated log of
 these and future decisions.
