@@ -21,3 +21,5 @@ storage/raw/*.json
 dbt/target/
 dbt/dbt_packages/
 dbt/logs/
+
+*.p8dbt/.user.yml
