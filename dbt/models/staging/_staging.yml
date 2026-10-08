@@ -1,0 +1,29 @@
+version: 2
+
+models:
+  - name: stg_games
+    description: "One row per NBA game, flattened from the raw JSON payload and deduplicated to the latest extraction. Grain: game_id."
+    columns:
+      - name: game_id
+        description: "Game identifier from the balldontlie API."
+        tests:
+          - unique
+          - not_null
+      - name: game_date
+        tests:
+          - not_null
+      - name: season
+        tests:
+          - not_null
+      - name: home_team_id
+        tests:
+          - not_null
+      - name: visitor_team_id
+        tests:
+          - not_null
+      - name: home_team_abbreviation
+        tests:
+          - not_null
+      - name: visitor_team_abbreviation
+        tests:
+          - not_null

@@ -49,9 +49,10 @@ from the balldontlie API with auth, rate limiting, retries, pagination, and
 record validation; lands raw JSON locally; has a passing pytest suite; CI
 runs on every push via GitHub Actions.
 
-Next up: Phase 2 — land raw data to S3 instead of local disk, then load into
-Snowflake RAW schema. This is also my first real hands-on AWS work, so
-expect to need more explanation here than in areas I already know.
+Phase 2 — land raw data to S3 instead of local disk is complete and
+verified, then load into Snowflake RAW schema. This is also my first real
+hands-on AWS work, so expect to need more explanation here than in areas 
+I already know.
 
 ## Longer-term roadmap
 

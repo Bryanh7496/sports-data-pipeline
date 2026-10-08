@@ -16,3 +16,8 @@ storage/raw/*.json
 .DS_Store
 .vscode/
 .idea/
+
+# dbt related
+dbt/target/
+dbt/dbt_packages/
+dbt/logs/

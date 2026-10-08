@@ -1,0 +1,21 @@
+name: sports_pipeline
+version: "1.0.0"
+config-version: 2
+
+# Must match the top-level key in profiles.yml (in this folder)
+profile: sports_pipeline
+
+model-paths: ["models"]
+test-paths: ["tests"]
+macro-paths: ["macros"]
+target-path: "target"
+clean-targets: ["target", "dbt_packages"]
+
+models:
+  sports_pipeline:
+    staging:
+      +schema: staging
+      +materialized: view
+    marts:
+      +schema: marts
+      +materialized: table

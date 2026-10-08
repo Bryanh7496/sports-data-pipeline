@@ -1,0 +1,20 @@
+version: 2
+
+sources:
+  - name: raw
+    database: SPORTS_DB
+    schema: RAW
+    description: "Untouched copies of what the ingestion pipeline landed in S3, loaded via COPY INTO."
+    tables:
+      - name: games_raw
+        description: "One row per landed JSON file. payload holds the full file as VARIANT (wrapper fields plus a data array of games)."
+        loaded_at_field: loaded_at
+        freshness:
+          warn_after: {count: 7, period: day}
+        columns:
+          - name: payload
+            description: "Full JSON file contents as VARIANT."
+          - name: source_file
+            description: "S3 path of the file this row came from."
+          - name: loaded_at
+            description: "When COPY INTO loaded the file."
